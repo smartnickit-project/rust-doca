@@ -2,3 +2,4 @@
 **/Cargo.lock
 bins/
 **/results/
+.vscode/
