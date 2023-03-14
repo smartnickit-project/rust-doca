@@ -11,13 +11,13 @@ For more information on `DOCA` SDK, please refer to the [DOCA SDK Document](http
 
 A good place to start is to look at the programs in [`doca/examples/`](doca/examples/), 
 and the original C examples which can be found at `/opt/mellanox/doca/samples` 
-if DOCA is installed on the machine.
+if DOCA is installed on the machine. To save user's time and effort, [deploying rust-doca with Docker](docs/docker-deploy.md) is a good option.
 
 ## Library dependency
 The `rust-doca` crate is totally supported by `DOCA` SDK.  If the machine has DOCA SDK installed, the user can easily find it at the path `/opt/mellanox/doca`. If not, the user may need to install the SDK by following the
 the [installation tutorial](
     docs/install.md
-) to install it or use Docker to [deploy](docs/docker-deploy.md).
+) to install it.
 
 To verify the installation is complete with the following:
 ```
