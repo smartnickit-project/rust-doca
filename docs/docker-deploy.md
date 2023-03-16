@@ -17,11 +17,12 @@ $ make build
 # Launch the `rust-doca` container, which runs in the background.
 $ make run
 
+# Open a terminal inside the container to compile and run the project.
+# You can build/run our repo inside this terminal
+$ make open
+
 # Delete the `rust-doca` container. Please be cautious!
 $ make clean
-
-# Open a terminal inside the container to compile and run the project.
-$ make open
 ```
 
 ## Run the Nvidia DOCA container with the Rust installed on the machine

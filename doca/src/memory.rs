@@ -1,92 +1,154 @@
 //! DOCA Memory subsystem
 //!  
-use ffi::{doca_error, doca_mmap_populate};
+//! Memory is an important module in DOCA, which is for DOCA DMA.
+//! Basically,the memory in DOCA is managed by a struct called `doca_mmap` that is a
+//! memory pool that holding the memory regions the user register into it.
+//! Also likeRDMA, every DMA request(src, dst) should be on these registered memory
+//! regions.
+//!
+//!
 use core::ffi::c_void;
+use ffi::{doca_error, doca_mmap_populate};
 use page_size;
+use std::ptr::NonNull;
+use std::sync::Arc;
 
 use crate::device::DevContext;
 
-/// The DOCA memory map provides a centralized repository and 
-/// orchestration of several memory ranges registration for each 
-/// device attached to the memory map.
-pub struct MemoryPool {
-    pool: *mut ffi::doca_mmap
+const DOCA_MMAP_CHUNK_SIZE: u32 = 64; // 64 registered memory regions per mmap
+/// A wrapper for `doca_mmap` struct
+/// Since a mmap can be used by multiple device context,
+/// we use a vector to record them.
+///
+pub struct DOCAMmap {
+    // inner pointer of the doca memory pool
+    inner: NonNull<ffi::doca_mmap>,
+    // the device contexts that the doca memory pool registered
+    ctx: Vec<Arc<DevContext>>,
 }
 
-impl Drop for MemoryPool {
+impl Drop for DOCAMmap {
     fn drop(&mut self) {
-        unsafe { ffi::doca_mmap_destroy(self.pool) };
+        self.ctx.clear();
+        self.stop().expect("failed to stop the doca_mmap");
+        unsafe { ffi::doca_mmap_destroy(self.inner.as_ptr()) };
     }
 }
 
-impl MemoryPool {
-    /// Allocates zero size memory map object with default/unset attributes.
-    /// This function should be called at server side
-    /// 
+impl DOCAMmap {
+    /// Allocates a default mmap with default/unset attributes.
+    /// This function should be called at server side.
+    ///
+    /// # Note
+    ///   The default constructor will create a memory pool with maximum 64 chunks.
+    ///
     /// Return values
-    /// DOCA_SUCCESS - in case of success. doca_error code - in case of failure:
-    /// DOCA_ERROR_INVALID_VALUE - if an invalid input had been received.
-    /// DOCA_ERROR_NO_MEMORY - failed to alloc doca_mmap.
-    pub fn new() -> Result<Self, doca_error::Type> {
+    /// - DOCA_SUCCESS - in case of success. doca_error code - in case of failure:
+    /// - DOCA_ERROR_INVALID_VALUE - if an invalid input had been received.
+    /// - DOCA_ERROR_NO_MEMORY - failed to alloc doca_mmap.
+    ///
+    pub fn new() -> Result<Self, doca_error> {
         let mut pool: *mut ffi::doca_mmap = std::ptr::null_mut();
 
         // currently we don't use any user data
         let null_ptr: *mut ffi::doca_data = std::ptr::null_mut();
 
-        let ret = unsafe { ffi::doca_mmap_create(null_ptr , &mut pool as *mut _)};
+        let ret = unsafe { ffi::doca_mmap_create(null_ptr, &mut pool as *mut _) };
 
         if ret != doca_error::DOCA_SUCCESS {
             return Err(ret);
         }
 
-        Ok(
-            Self {
-                pool: pool
-            }
-        )
+        let mut res = Self {
+            inner: unsafe { NonNull::new_unchecked(pool) },
+            ctx: Vec::new(),
+        };
+        res.set_max_chunks(DOCA_MMAP_CHUNK_SIZE)?;
+
+        res.start()?;
+        Ok(res)
     }
 
-    /// Return the `mmap` member
-    pub fn inner(&self) -> *mut ffi::doca_mmap {
-        self.pool
+    /// TBD
+    pub fn new_with_arg() {
+        unimplemented!();
     }
 
-    /// Creates a memory map object representing memory ranges in remote system memory space.
-    /// 
+    /// Return the inner pointer of the memory map object.
+    #[inline]
+    pub unsafe fn inner_ptr(&self) -> *mut ffi::doca_mmap {
+        self.inner.as_ptr()
+    }
+
+    /// Creates a memory map object representing the **remote** memory.
+    /// It should be bound to a `DevContext`.
+    ///
+    /// Note that it is a remote device, so the usage should not be mixed with the local device.
+    ///
     /// Return values
-    /// DOCA_SUCCESS - in case of success. doca_error code - in case of failure:
-    /// DOCA_ERROR_INVALID_VALUE - if an invalid input had been received or internal error. The following errors are internal and will occur if failed to produce new mmap from export descriptor:
-    /// DOCA_ERROR_NO_MEMORY - if internal memory allocation failed.
-    /// DOCA_ERROR_NOT_SUPPORTED - device missing create from export capability.
-    /// DOCA_ERROR_NOT_PERMITTED
-    /// DOCA_ERROR_DRIVER
-    pub fn new_from_export(desc_buffer: *mut c_void, desc_len: usize, dev: &DevContext) -> Result<Self, doca_error::Type> {
+    /// - DOCA_SUCCESS - in case of success. doca_error code - in case of failure:
+    /// - DOCA_ERROR_INVALID_VALUE - if an invalid input had been received or internal error. The following errors are internal and will occur if failed to produce new mmap from export descriptor:
+    /// - DOCA_ERROR_NO_MEMORY - if internal memory allocation failed.
+    /// - DOCA_ERROR_NOT_SUPPORTED - device missing create from export capability.
+    /// - DOCA_ERROR_NOT_PERMITTED
+    /// - DOCA_ERROR_DRIVER
+    ///
+    /// TODO: describe the input
+    ///
+    pub fn new_from_export(
+        desc_buffer: *mut c_void,
+        desc_len: usize,
+        dev: &Arc<DevContext>,
+    ) -> Result<Self, doca_error> {
         let mut pool: *mut ffi::doca_mmap = std::ptr::null_mut();
         // currently we don't use any user data
         let null_ptr: *mut ffi::doca_data = std::ptr::null_mut();
 
-        let ret = unsafe { ffi::doca_mmap_create_from_export(null_ptr, desc_buffer, desc_len, dev.ctx(), &mut pool as *mut _) };
+        let ret = unsafe {
+            ffi::doca_mmap_create_from_export(
+                null_ptr,
+                desc_buffer,
+                desc_len,
+                dev.inner_ptr(),
+                &mut pool as *mut _,
+            )
+        };
 
         if ret != doca_error::DOCA_SUCCESS {
             return Err(ret);
         }
 
-        Ok(
-            Self { 
-                pool: pool
-            }
-        )
+        Ok(Self {
+            inner: unsafe { NonNull::new_unchecked(pool) },
+            ctx: vec![dev.clone()],
+        })
     }
 
-    /// Compose memory map representation for later import with doca_mmap_create_from_export() for one 
-    /// of the devices previously added to the memory map.
-    pub fn export(&self, dev: &DevContext) -> Result<(*mut c_void, usize), doca_error::Type> {
+    /// Export the **local mmap** information to a buffer.
+    /// This buffer can be used by remote to create a new mmap,
+    /// see the above `new_from_export`.
+    ///
+    /// Input:
+    /// - dev_index: the index of the local device that the mmap is registered on.
+    ///
+    pub fn export(&self, dev_index: usize) -> Result<(*mut c_void, usize), doca_error> {
         let len: usize = 0;
         let len_ptr = &len as *const usize as *mut usize;
 
         let mut export_desc: *mut c_void = std::ptr::null_mut();
+        let dev = self
+            .ctx
+            .get(dev_index)
+            .ok_or(doca_error::DOCA_ERROR_INVALID_VALUE)?;
 
-        let ret = unsafe { ffi::doca_mmap_export(self.pool, dev.ctx(), &mut export_desc as *mut _, len_ptr) };
+        let ret = unsafe {
+            ffi::doca_mmap_export(
+                self.inner_ptr(),
+                dev.inner_ptr(),
+                &mut export_desc as *mut _,
+                len_ptr,
+            )
+        };
 
         if ret != doca_error::DOCA_SUCCESS {
             return Err(ret);
@@ -94,11 +156,57 @@ impl MemoryPool {
 
         Ok((export_desc, len))
     }
-    
 
+    /// Register DOCA memory map on a given device.
+    pub fn add_device(&mut self, dev: &Arc<DevContext>) -> Result<(), doca_error> {
+        let ret = unsafe { ffi::doca_mmap_dev_add(self.inner_ptr(), dev.inner_ptr()) };
+
+        if ret != doca_error::DOCA_SUCCESS {
+            return Err(ret);
+        }
+
+        self.ctx.push(dev.clone());
+        Ok(())
+    }
+
+    /// Deregister given device from DOCA memory map.
+    /// You should call it before free the Memory Pool.
+    pub fn rm_device(&self, _dev_idx: usize) -> Result<(), doca_error> {
+        unimplemented!();
+    }
+
+    /// Add memory range to DOCA memory map.
+    /// It is similar to `reg_mr` in RDMA.
+    ///
+    /// The memory can be used for DMA for all the contexts already in the mmap.
+    ///
+    pub fn populate(&self, addr: *mut c_void, len: usize) -> Result<(), doca_error> {
+        let null_opaque: *mut c_void = std::ptr::null_mut::<c_void>();
+        let ret = unsafe {
+            doca_mmap_populate(
+                self.inner_ptr(),
+                addr,
+                len,
+                page_size::get(),
+                None,
+                null_opaque,
+            )
+        };
+
+        if ret != doca_error::DOCA_SUCCESS {
+            return Err(ret);
+        }
+
+        Ok(())
+    }
+}
+
+impl DOCAMmap {
     /// start the DOCA mmap
-    pub fn start(&self) -> Result<(), doca_error::Type> {
-        let ret = unsafe { ffi::doca_mmap_start(self.pool) };
+    /// TBD
+    ///
+    fn start(&self) -> Result<(), doca_error> {
+        let ret = unsafe { ffi::doca_mmap_start(self.inner_ptr()) };
 
         if ret != doca_error::DOCA_SUCCESS {
             return Err(ret);
@@ -108,8 +216,10 @@ impl MemoryPool {
     }
 
     /// stop the DOCA mmap
-    pub fn stop(&self) -> Result<(), doca_error::Type> {
-        let ret = unsafe { ffi::doca_mmap_stop(self.pool) };
+    /// TBD
+    ///
+    fn stop(&self) -> Result<(), doca_error> {
+        let ret = unsafe { ffi::doca_mmap_stop(self.inner_ptr()) };
 
         if ret != doca_error::DOCA_SUCCESS {
             return Err(ret);
@@ -118,169 +228,11 @@ impl MemoryPool {
         Ok(())
     }
 
-    /// Register DOCA memory map on a given device.
-    pub fn add_device(&self, dev: &DevContext) -> Result<(), doca_error::Type> {
-
-        let ret = unsafe { ffi::doca_mmap_dev_add(self.pool, dev.ctx()) };
-        
-        if ret != doca_error::DOCA_SUCCESS {
-            return Err(ret);
-        }
-
-        Ok(())
-    }
-
-    /// Deregister given device from DOCA memory map.
-    /// You should call it before free the Memory Pool.
-    pub fn rm_device(&self, dev: &DevContext) -> Result<(), doca_error::Type> {
-
-        let ret = unsafe { ffi::doca_mmap_dev_rm(self.pool, dev.ctx()) };
-        
-        if ret != doca_error::DOCA_SUCCESS {
-            return Err(ret);
-        }
-
-        Ok(())
-    }
-
-    /// Add memory range to DOCA memory map.
-    pub fn populate(&self, addr: *mut c_void, len: usize) -> Result<(), doca_error::Type> {
-        let null_opaque: *mut c_void = std::ptr::null_mut::<c_void>();
-        let ret = unsafe { doca_mmap_populate(self.pool, addr, len, page_size::get(), None, null_opaque) };
-
-        if ret != doca_error::DOCA_SUCCESS {
-            return Err(ret);
-        }
-
-        Ok(())
-    }
-
-    /// Set a new max number of chunks to populate in a DOCA Memory Map. 
+    /// Set a new max number of chunks to populate in a DOCA Memory Map.
     /// Note: once a memory map object has been first started this functionality will not be available.
-    pub fn set_max_chunks(&self, num: u32) -> Result<(), doca_error::Type> {
-        let ret = unsafe { ffi::doca_mmap_set_max_num_chunks(self.pool, num) };
-
-        if ret != doca_error::DOCA_SUCCESS {
-            return Err(ret);
-        } 
-
-        Ok(())
-    }
-
-}
-
-/// The DOCA Buffer is used for reference data. 
-/// It holds the information on a memory region that belongs to a DOCA memory map, 
-/// and its descriptor is allocated from DOCA Buffer Inventory.
-/// 
-/// Notice that you should free the buffer use function `free` explicitly.
-pub struct Buffer {
-    inner: *mut ffi::doca_buf
-}
-
-impl Buffer {
-    /// Get the buffer's data.
-    pub fn get_data(&self) -> Result<*mut c_void, doca_error::Type> {
-        let mut data: *mut c_void = std::ptr::null_mut();
-
-        let ret = unsafe { ffi::doca_buf_get_data(self.inner, &mut data as *mut _) };
-
-        if ret != doca_error::DOCA_SUCCESS {
-            return Err(ret);
-        }
-
-        Ok(data)
-    }
-
-    /// Set data pointer and data length
-    pub fn set_data(&self, data: *mut c_void, len: usize) -> Result<(), doca_error::Type> {
-        let ret = unsafe { ffi::doca_buf_set_data(self.inner, data, len) };
-
-        if ret != doca_error::DOCA_SUCCESS {
-            return Err(ret);
-        }
-
-        Ok(())
-    }
-
-    /// Free the buffer to prevent memory leak,
-    /// It also means that the buffer is no longer used.
-    pub fn free(&self) -> Result<(), doca_error::Type> {
-        let ret = unsafe { ffi::doca_buf_refcount_rm(self.inner, std::ptr::null_mut()) };
-        if ret != doca_error::DOCA_SUCCESS {
-            return Err(ret);
-        }
-
-        Ok(())
-    }
-
-    /// Return the pointer
-    pub fn inner(&self) -> *mut ffi::doca_buf {
-        self.inner
-    }
-
-}
-
-/// The DOCA buffer inventory manages a pool of doca_buf objects. 
-/// Each buffer obtained from an inventory is a descriptor that points to a memory region from a doca_mmap memory range of the user's choice.
-pub struct BufferInventory {
-    inner: *mut ffi::doca_buf_inventory,
-}
-
-impl Drop for BufferInventory {
-    fn drop(&mut self) {
-        unsafe { ffi::doca_buf_inventory_destroy(self.inner) };
-    }
-}
-
-impl BufferInventory {
-    /// Allocates buffer inventory with default/unset attributes.
-    pub fn new(num: usize) -> Result<Self, doca_error::Type> {
-        // currently we don't use `user_data` field
-        let mut buf_inv: *mut ffi::doca_buf_inventory = std::ptr::null_mut();
-        // DOCA_BUF_EXTENSION_NONE = 0;
-        let ret = unsafe { ffi::doca_buf_inventory_create(std::ptr::null(), num, 0, &mut buf_inv as *mut _) };
-
-        if ret != doca_error::DOCA_SUCCESS {
-            return Err(ret);
-        } 
-
-        Ok(Self {
-            inner: buf_inv
-        })
-    }
-
-    /// Allocate single element from buffer inventory and point it to the buffer defined by `addr` & `len` arguments.
-    pub fn alloc_buffer(&self, mmap: &MemoryPool, addr: *mut c_void, len: usize) -> Result<Buffer, doca_error::Type> {
-        let mut buffer: *mut ffi::doca_buf = std::ptr::null_mut();
-        let ret = unsafe { ffi::doca_buf_inventory_buf_by_args(self.inner, mmap.inner(), addr, len, addr, 0, &mut buffer as *mut _) };
-
-        if ret != doca_error::DOCA_SUCCESS {
-            return Err(ret);
-        } 
-
-        Ok(Buffer { inner: buffer })
-    }
-
-    /// Return the pointer
-    pub fn inner(&self) -> *mut ffi::doca_buf_inventory {
-        self.inner
-    }
-
-    /// Start element retrieval from inventory.
-    pub fn start(&self) -> Result<(), doca_error::Type>{
-        let ret = unsafe { ffi::doca_buf_inventory_start(self.inner) };
-
-        if ret != doca_error::DOCA_SUCCESS {
-            return Err(ret);
-        }
-
-        Ok(())
-    }
-
-    /// Stop element retrieval from inventory.
-    pub fn stop(&self) -> Result<(), doca_error::Type>{
-        let ret = unsafe { ffi::doca_buf_inventory_stop(self.inner) };
+    ///
+    fn set_max_chunks(&mut self, num: u32) -> Result<(), doca_error> {
+        let ret = unsafe { ffi::doca_mmap_set_max_num_chunks(self.inner_ptr(), num) };
 
         if ret != doca_error::DOCA_SUCCESS {
             return Err(ret);
@@ -289,3 +241,24 @@ impl BufferInventory {
         Ok(())
     }
 }
+
+mod tests {
+
+    // a simple test to create a memory pool and 
+    // register a memory on it
+    #[test]
+    fn test_memory_create() {
+
+        use crate::*;
+
+        // use the first device found 
+        let device_ctx = devices().unwrap().get(0).unwrap().open().unwrap();
+        let mut doca_mmap = DOCAMmap::new().unwrap();
+        doca_mmap.add_device(&device_ctx).unwrap();
+
+        let test_len = 1024;
+        let mut dpu_buffer = vec![0u8; test_len].into_boxed_slice();
+        doca_mmap.populate(dpu_buffer.as_mut_ptr() as _, test_len).unwrap();        
+    }
+}
+
