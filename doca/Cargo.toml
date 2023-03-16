@@ -10,13 +10,13 @@ edition = "2021"
 name = "local_dma_copy"
 path = "examples/dma/local_copy_on_dpu.rs"
 
-[[example]]
-name = "dma_copy_host"
-path = "examples/dma/dma_copy_host.rs"
+#[[example]]
+#name = "dma_copy_host"
+#path = "examples/dma/dma_copy_host.rs"
 
-[[example]]
-name = "dma_copy_dpu"
-path = "examples/dma/dma_copy_dpu.rs"
+#[[example]]
+#name = "dma_copy_dpu"
+#path = "examples/dma/dma_copy_dpu.rs"
 
 [dependencies]
 ffi = { path = "../doca-sys", package = "doca-sys", version = "0.1.0" }

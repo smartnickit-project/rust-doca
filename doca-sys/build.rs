@@ -23,6 +23,8 @@ fn main() {
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
         .clang_arg("-I/opt/mellanox/doca/include")
+    
+        .generate_comments(false)
 
         .whitelist_function("doca_dev_.*")
         .whitelist_function("doca_devinfo_.*")
@@ -60,7 +62,8 @@ fn main() {
         .derive_debug(true)
         .prepend_enum_name(false)
         .size_t_is_usize(true)
-        .constified_enum_module("doca_error")
+        // .constified_enum_module("doca_error")
+        .rustified_enum("doca_error")
         .generate()
         .expect("Unable to generate bindings");
 

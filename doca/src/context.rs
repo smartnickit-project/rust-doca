@@ -1,19 +1,20 @@
 //! DOCA Execution Related, including Context, WorkQueue and others.
 //! 
 
-use core::ptr::NonNull;
+use std::ptr::{NonNull};
+use std::sync::Arc;
 
 use ffi::{doca_error::{self, DOCA_ERROR_AGAIN}, doca_event, DOCA_WORKQ_RETRIEVE_FLAGS_NONE};
-use crate::{dma::{DMAEngine, DMAJob}, device::DevContext};
+// use crate::{dma::{DMAEngine, DMAJob}, device::DevContext};
 
 /// DOCA DMA CTX
-pub struct Context {
-    pub(crate) inner: *mut ffi::doca_ctx
+pub struct DOCAContext {
+    pub(crate) inner: NonNull<ffi::doca_ctx>
 }
 
-impl Context {
+impl DOCAContext {
     /// Create a new DOCA DMA context based on the DMA instance.
-    pub fn new(dma: &DMAEngine) -> Self {
+    pub fn new(dma: &DMAEngine) -> Arc<Self> {
         let ctx = unsafe { ffi::doca_dma_as_ctx(dma.inner) };
         Self {
             inner: ctx

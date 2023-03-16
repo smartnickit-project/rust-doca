@@ -48,10 +48,9 @@ are also provided.
 The whole process can be seen in the picture below.![](https://docs.nvidia.com/doca/sdk/doca-core-programming-guide/graphics/doca-mmap-diagram.png)
 
 ### Buffer
-Of course, the user can't use raw pointer or raw buffer to do DMA requests.
-You should register the memory into memory pool and use a special 
-struct `doca_buf` to point to the memory. The buffer module is the wrapper of these structs to control the Buffers pointed to the memory
- pool.
+The user can't use raw pointer or raw buffer to do DMA requests.
+Theey should register the memory into memory pool and use a special 
+struct `doca_buf` to point to the memory. The buffer module is the wrapper of these structs to control the Buffers pointed to the memory pool.
 
 DOCA has another `doca_buf_inv` struct, which holds all `doca_buf`  
 like a buffer repository. First the user need to allocate a `doca_buf`
