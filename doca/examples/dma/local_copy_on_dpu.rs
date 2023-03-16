@@ -71,6 +71,7 @@ fn main() {
             .to_buffer(&inv)
             .unwrap();
 
+    /* Start to submit the DMA job!  */
     let job = workq.create_dma_job(dma_src_buf, dma_dst_buf);
     workq.submit(&job).expect("failed to submit the job");
 
@@ -98,35 +99,4 @@ fn main() {
         String::from_utf8(dst_buffer.to_vec()).unwrap()
     );
 
-    /* Start to submit the DMA job!  */
-    /*
-    // wait for completion
-    let mut event = doca::context::Event::new();
-    let ret = workq.poll_completion(&mut event);
-    if ret != DOCA_SUCCESS {
-        println!("Failed to poll the job!!");
-        return;
-    }
-
-    // check status
-    let result = event.result() as u32;
-    if result != DOCA_SUCCESS {
-        println!("Job failed!");
-        return;
-    }
-
-    println!(
-        "dma copy success, the information in dst buffer: {}",
-        String::from_utf8(dst_buffer.to_vec()).unwrap()
-    );
-
-    // Clean resources
-    ctx.rm_workq(&workq).unwrap();
-    dst_doca_buf.free().unwrap();
-    src_doca_buf.free().unwrap();
-
-    mmap.rm_device(&device).unwrap();
-    ctx.stop();
-    ctx.rm_device(&device);
-    */
 }
