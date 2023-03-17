@@ -44,7 +44,6 @@ impl RawPointer {
 /// It holds the information on a memory region that belongs to a DOCA memory map,
 /// and its descriptor is allocated from DOCA Buffer Inventory.
 ///
-/// Notice that you should free the buffer use function `free` explicitly.
 pub struct DOCABuffer {
     pub(crate) inner: NonNull<ffi::doca_buf>,
     pub(crate) head: RawPointer,
@@ -61,8 +60,12 @@ impl Drop for DOCABuffer {
     fn drop(&mut self) {
         let ret = unsafe { ffi::doca_buf_refcount_rm(self.inner_ptr(), std::ptr::null_mut()) };
         if ret != doca_error::DOCA_SUCCESS {
-            unimplemented!();
+            panic!("Failed to remove refcount of doca buffer");
         }
+
+        // Show drop order only in `debug` mode
+        #[cfg(debug_assertions)]
+        println!("DOCA Buffer is dropped!");
     }
 }
 
@@ -115,8 +118,11 @@ pub struct BufferInventory {
 
 impl Drop for BufferInventory {
     fn drop(&mut self) {
-        self.stop().expect("Failed to drop BufferInventory");
         unsafe { ffi::doca_buf_inventory_destroy(self.inner.as_ptr()) };
+
+        // Show drop order only in `debug` mode
+        #[cfg(debug_assertions)]
+        println!("Buffer Inventory is dropped!");
     }
 }
 
@@ -156,17 +162,6 @@ impl BufferInventory {
     /// Start element retrieval from inventory.
     fn start(&mut self) -> Result<(), doca_error> {
         let ret = unsafe { ffi::doca_buf_inventory_start(self.inner_ptr()) };
-
-        if ret != doca_error::DOCA_SUCCESS {
-            return Err(ret);
-        }
-
-        Ok(())
-    }
-
-    /// Stop element retrieval from inventory.
-    fn stop(&mut self) -> Result<(), doca_error> {
-        let ret = unsafe { ffi::doca_buf_inventory_stop(self.inner_ptr()) };
 
         if ret != doca_error::DOCA_SUCCESS {
             return Err(ret);

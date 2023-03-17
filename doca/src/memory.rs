@@ -29,9 +29,20 @@ pub struct DOCAMmap {
 
 impl Drop for DOCAMmap {
     fn drop(&mut self) {
+        for dev in &self.ctx {
+            let ret = unsafe { ffi::doca_mmap_dev_rm(self.inner_ptr(), dev.inner_ptr()) };
+
+            if ret != doca_error::DOCA_SUCCESS {
+                panic!("Failed to deregister the device from Memory Pool");
+            }
+        }
+
         self.ctx.clear();
-        self.stop().expect("failed to stop the doca_mmap");
         unsafe { ffi::doca_mmap_destroy(self.inner.as_ptr()) };
+
+        // Show drop order only in `debug` mode
+        #[cfg(debug_assertions)]
+        println!("DOCA mmap is dropped!");
     }
 }
 
@@ -158,7 +169,7 @@ impl DOCAMmap {
     }
 
     /// Register DOCA memory map on a given device.
-    pub fn add_device(&mut self, dev: &Arc<DevContext>) -> Result<(), doca_error> {
+    pub fn add_device(&mut self, dev: &Arc<DevContext>) -> Result<usize, doca_error> {
         let ret = unsafe { ffi::doca_mmap_dev_add(self.inner_ptr(), dev.inner_ptr()) };
 
         if ret != doca_error::DOCA_SUCCESS {
@@ -166,13 +177,21 @@ impl DOCAMmap {
         }
 
         self.ctx.push(dev.clone());
-        Ok(())
+        Ok(self.ctx.len() - 1)
     }
 
     /// Deregister given device from DOCA memory map.
-    /// You should call it before free the Memory Pool.
+    /// Notice that, the given index from `add_device`
+    /// will change after the user calls the function.
     pub fn rm_device(&self, _dev_idx: usize) -> Result<(), doca_error> {
-        unimplemented!();
+        let ret =
+            unsafe { ffi::doca_mmap_dev_rm(self.inner_ptr(), self.ctx[_dev_idx].inner_ptr()) };
+
+        if ret != doca_error::DOCA_SUCCESS {
+            return Err(ret);
+        }
+
+        Ok(())
     }
 
     /// Add memory range to DOCA memory map.
@@ -203,23 +222,10 @@ impl DOCAMmap {
 
 impl DOCAMmap {
     /// start the DOCA mmap
-    /// TBD
+    /// Allows execution of different operations on the mmap.
     ///
     fn start(&self) -> Result<(), doca_error> {
         let ret = unsafe { ffi::doca_mmap_start(self.inner_ptr()) };
-
-        if ret != doca_error::DOCA_SUCCESS {
-            return Err(ret);
-        }
-
-        Ok(())
-    }
-
-    /// stop the DOCA mmap
-    /// TBD
-    ///
-    fn stop(&self) -> Result<(), doca_error> {
-        let ret = unsafe { ffi::doca_mmap_stop(self.inner_ptr()) };
 
         if ret != doca_error::DOCA_SUCCESS {
             return Err(ret);
@@ -244,21 +250,21 @@ impl DOCAMmap {
 
 mod tests {
 
-    // a simple test to create a memory pool and 
+    // a simple test to create a memory pool and
     // register a memory on it
     #[test]
     fn test_memory_create() {
-
         use crate::*;
 
-        // use the first device found 
+        // use the first device found
         let device_ctx = devices().unwrap().get(0).unwrap().open().unwrap();
         let mut doca_mmap = DOCAMmap::new().unwrap();
         doca_mmap.add_device(&device_ctx).unwrap();
 
         let test_len = 1024;
         let mut dpu_buffer = vec![0u8; test_len].into_boxed_slice();
-        doca_mmap.populate(dpu_buffer.as_mut_ptr() as _, test_len).unwrap();        
+        doca_mmap
+            .populate(dpu_buffer.as_mut_ptr() as _, test_len)
+            .unwrap();
     }
 }
-

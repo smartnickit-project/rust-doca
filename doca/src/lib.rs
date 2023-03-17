@@ -1,23 +1,32 @@
 //! A wrapper of the DOCA API to simplify usage in rust.
 //!
 
-use ffi::doca_error::*;
+#![deny(
+	// missing_docs,
+	unused_imports,
+	unused_must_use,
+	unused_parens,
+	unused_qualifications,
+)]
+
 use ffi::doca_error;
+use ffi::doca_error::*;
 use ffi::doca_error_t;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
 
-pub use buffer::{BufferInventory, RawPointer, DOCABuffer};
-pub use device::{devices, DevContext, Device, DeviceList, open_device_with_pci};
+pub use buffer::{BufferInventory, DOCABuffer, RawPointer};
+pub use device::{devices, open_device_with_pci, DevContext, Device, DeviceList};
+pub use dma::{DMAEngine, DOCAEvent, DOCAWorkQueue};
 pub use memory::DOCAMmap;
 pub use registered_memory::DOCARegisteredMemory;
-pub use dma::{DMAEngine, DOCAWorkQueue, DOCAEvent};
 
 pub mod buffer;
+pub mod context;
 pub mod device;
+pub mod dma;
 pub mod memory;
 pub mod registered_memory;
-pub mod dma;
 
 pub type DOCAError = doca_error;
 

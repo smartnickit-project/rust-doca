@@ -9,13 +9,58 @@
 use std::ptr::NonNull;
 use std::sync::Arc;
 
-use crate::{DOCABuffer, DOCAError, DevContext};
+use crate::context::context::EngineToContext;
+use crate::context::work_queue::ToBaseJob;
+use crate::{DOCABuffer, DOCAError};
 
-pub mod context;
-pub mod work_queue;
+pub use crate::context::context::DOCAContext;
+pub use crate::context::work_queue::{DOCAEvent, DOCAWorkQueue};
 
-pub use context::DOCAContext;
-pub use work_queue::{DOCAEvent, DOCAWorkQueue};
+/// DOCA DMA engine instance
+pub struct DMAEngine {
+    inner: NonNull<ffi::doca_dma>,
+}
+
+impl Drop for DMAEngine {
+    fn drop(&mut self) {
+        let ret = unsafe { ffi::doca_dma_destroy(self.inner_ptr()) };
+        if ret != DOCAError::DOCA_SUCCESS {
+            panic!("Failed to destory dma engine!");
+        }
+
+        // Show drop order only in `debug` mode
+        #[cfg(debug_assertions)]
+        println!("DMA Engine is dropped!");
+    }
+}
+
+/// Implementation `EngineToContext` Trait for DMA Engine
+impl EngineToContext for DMAEngine {
+    unsafe fn to_ctx(&self) -> *mut ffi::doca_ctx {
+        ffi::doca_dma_as_ctx(self.inner_ptr())
+    }
+}
+
+impl DMAEngine {
+    /// Create a DOCA DMA instance.
+    pub fn new() -> Result<Arc<Self>, DOCAError> {
+        let mut dma: *mut ffi::doca_dma = std::ptr::null_mut();
+        let ret = unsafe { ffi::doca_dma_create(&mut dma as *mut _) };
+
+        if ret != DOCAError::DOCA_SUCCESS {
+            return Err(ret);
+        }
+
+        Ok(Arc::new(Self {
+            inner: unsafe { NonNull::new_unchecked(dma) },
+        }))
+    }
+
+    /// Get the inner pointer of the DOCA DMA instance.
+    pub unsafe fn inner_ptr(&self) -> *mut ffi::doca_dma {
+        self.inner.as_ptr()
+    }
+}
 
 /// A DOCA DMA request
 pub struct DOCADMAJob {
@@ -23,10 +68,17 @@ pub struct DOCADMAJob {
 
     // FIXME: do we really need to record the context here?
     #[allow(dead_code)]
-    ctx: Arc<DOCAContext>,
+    ctx: Arc<DOCAContext<DMAEngine>>,
 
     src_buff: Option<DOCABuffer>,
     dst_buff: Option<DOCABuffer>,
+}
+
+/// Implementation of `ToBaseJob` Trait
+impl ToBaseJob for DOCADMAJob {
+    fn to_base(&self) -> &ffi::doca_job {
+        &self.inner.base
+    }
 }
 
 impl DOCADMAJob {
@@ -63,55 +115,43 @@ impl DOCADMAJob {
     }
 }
 
-/// DOCA DMA engine instance
-pub struct DMAEngine {
-    inner: NonNull<ffi::doca_dma>,
+impl DOCAWorkQueue<DMAEngine> {
+    /// Create a DMA job
+    pub fn create_dma_job(&self, src_buf: DOCABuffer, dst_buf: DOCABuffer) -> DOCADMAJob {
+        let mut res = DOCADMAJob {
+            inner: Default::default(),
+            ctx: self.ctx.clone(),
+            src_buff: None,
+            dst_buff: None,
+        };
+        res.set_ctx()
+            .set_flags()
+            .set_type()
+            .set_src(src_buf)
+            .set_dst(dst_buf);
+        res
+    }
+    
 }
 
-impl DMAEngine {
-    /// Create a DOCA DMA instance.
-    pub fn new() -> Result<Arc<Self>, DOCAError> {
-        let mut dma: *mut ffi::doca_dma = std::ptr::null_mut();
-        let ret = unsafe { ffi::doca_dma_create(&mut dma as *mut _) };
+mod tests {
 
-        if ret != DOCAError::DOCA_SUCCESS {
-            return Err(ret);
-        }
-
-        Ok(Arc::new(Self {
-            inner: unsafe { NonNull::new_unchecked(dma) },
-        }))
-    }
-
-    /// Create a DMA context based on the DMA instance.
-    pub fn create_context(
-        self: &Arc<Self>,
-        added_devs: Vec<Arc<DevContext>>,
-    ) -> Result<Arc<DOCAContext>, DOCAError> {
-        DOCAContext::new(self, added_devs)
-    }
-
-    /// Get the inner pointer of the DOCA DMA instance.
-    pub unsafe fn inner_ptr(&self) -> *mut ffi::doca_dma {
-        self.inner.as_ptr()
-    }
-}
-
-
-mod tests { 
     #[test]
-    fn test_create_dma_job() { 
-        use crate::dma::DMAEngine;
-        use crate::*;        
+    fn test_create_dma_job() {
         use super::*;
+        use crate::dma::DMAEngine;
+        use crate::*;
         use std::ptr::NonNull;
 
-        let device = crate::device::devices().unwrap().get(0).unwrap().open().unwrap();
+        let device = devices().unwrap().get(0).unwrap().open().unwrap();
 
-        let ctx = DMAEngine::new().unwrap().create_context(vec![device]).unwrap();
-        let workq = DOCAWorkQueue::new(1, &ctx).unwrap();        
+        let dma = DMAEngine::new().unwrap();
 
-        // create buffers 
+        let ctx = DOCAContext::new(&dma, vec![device]).unwrap();
+
+        let workq = DOCAWorkQueue::new(1, &ctx).unwrap();
+
+        // create buffers
         let doca_mmap = Arc::new(DOCAMmap::new().unwrap());
         let inv = BufferInventory::new(1024).unwrap();
 
@@ -127,7 +167,7 @@ mod tests {
         let raw_pointer_1 = RawPointer {
             inner: NonNull::new(dpu_buffer_1.as_mut_ptr() as _).unwrap(),
             payload: test_len,
-        };        
+        };
 
         let registered_memory = DOCARegisteredMemory::new(&doca_mmap, raw_pointer).unwrap();
         let src_buf = registered_memory.to_buffer(&inv).unwrap();
@@ -136,6 +176,22 @@ mod tests {
         let dst_buf = registered_memory.to_buffer(&inv).unwrap();
 
         let _ = workq.create_dma_job(src_buf, dst_buf);
+    }
 
+    #[test]
+    fn test_dma_context() {
+        use crate::dma::DMAEngine;
+        use crate::dma::DOCAContext;
+
+        let device = crate::device::devices()
+            .unwrap()
+            .get(0)
+            .unwrap()
+            .open()
+            .unwrap();
+
+        let dma = DMAEngine::new().unwrap();
+        let ctx = DOCAContext::new(&dma, vec![device]).unwrap();
+        unsafe { assert_eq!(ctx.engine.inner_ptr(), dma.inner_ptr()) };
     }
 }

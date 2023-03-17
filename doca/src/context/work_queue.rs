@@ -1,9 +1,14 @@
-use crate::{DOCABuffer, DOCAError};
-use ffi::doca_event;
-use std::ptr::NonNull;
-use std::sync::Arc;
+use std::{ptr::NonNull, sync::Arc};
 
-use super::DOCAContext;
+use ffi::{doca_event, doca_job};
+
+use crate::DOCAError;
+
+use super::context::{DOCAContext, EngineToContext};
+
+pub trait ToBaseJob {
+    fn to_base(&self) -> &doca_job;
+}
 
 ///Event structure defines activity completion of:
 /// 1. Completion event of submitted job.
@@ -37,14 +42,14 @@ impl DOCAEvent {
 /// and query the job's completion status.
 /// To start submitting jobs, however, the WorkQ must be configured to accept that type of job.
 /// Each WorkQ can be configured to accept any number of job types depending on how it initialized.
-pub struct DOCAWorkQueue {
+pub struct DOCAWorkQueue<T: EngineToContext> {
     inner: NonNull<ffi::doca_workq>,
     depth: u32,
     #[allow(dead_code)]
-    ctx: Arc<DOCAContext>,
+    pub(crate) ctx: Arc<DOCAContext<T>>,
 }
 
-impl Drop for DOCAWorkQueue {
+impl<T: EngineToContext> Drop for DOCAWorkQueue<T> {
     fn drop(&mut self) {
         // remove the worker queue from the context
         let ret = unsafe { ffi::doca_ctx_workq_rm(self.ctx.inner_ptr(), self.inner_ptr()) };
@@ -54,13 +59,16 @@ impl Drop for DOCAWorkQueue {
             "failed to remove workq from context"
         );
         unsafe { ffi::doca_workq_destroy(self.inner_ptr()) };
+
+        // Show drop order only in `debug` mode
+        #[cfg(debug_assertions)]
+        println!("DOCA WorkQ is dropped!");
     }
 }
 
-impl DOCAWorkQueue {
-    
+impl<T: EngineToContext> DOCAWorkQueue<T> {
     /// Creates empty DOCA WorkQ object with default attributes.
-    pub fn new(depth: u32, ctx: &Arc<DOCAContext>) -> Result<Self, DOCAError> {
+    pub fn new(depth: u32, ctx: &Arc<DOCAContext<T>>) -> Result<Self, DOCAError> {
         let mut workq: *mut ffi::doca_workq = std::ptr::null_mut();
         let ret = unsafe { ffi::doca_workq_create(depth, &mut workq as *mut _) };
 
@@ -84,25 +92,9 @@ impl DOCAWorkQueue {
         Ok(res)
     }
 
-    /// Create a DMA job
-    pub fn create_dma_job(&self, src_buf: DOCABuffer, dst_buf: DOCABuffer) -> super::DOCADMAJob {
-        let mut res = super::DOCADMAJob {
-            inner: Default::default(),
-            ctx: self.ctx.clone(),
-            src_buff: None,
-            dst_buff: None,
-        };
-        res.set_ctx()
-            .set_flags()
-            .set_type()
-            .set_src(src_buf)
-            .set_dst(dst_buf);
-        res
-    }
-
     /// Add the job into the work queue
-    pub fn submit(&mut self, job: &super::DOCADMAJob) -> Result<(), DOCAError> {
-        let ret = unsafe { ffi::doca_workq_submit(self.inner_ptr(), &job.inner.base as *const _) };
+    pub fn submit<Job: ToBaseJob>(&mut self, job: &Job) -> Result<(), DOCAError> {
+        let ret = unsafe { ffi::doca_workq_submit(self.inner_ptr(), job.to_base() as *const _) };
         if ret != DOCAError::DOCA_SUCCESS {
             return Err(ret);
         }
@@ -141,6 +133,7 @@ impl DOCAWorkQueue {
 mod tests {
     #[test]
     fn test_worker_queue_create() {
+        use crate::context::context::DOCAContext;
         use crate::dma::DMAEngine;
         use crate::DOCAWorkQueue;
 
@@ -151,10 +144,10 @@ mod tests {
             .open()
             .unwrap();
 
-        let ctx = DMAEngine::new()
-            .unwrap()
-            .create_context(vec![device])
-            .unwrap();
+        let dma = DMAEngine::new().unwrap();
+
+        let ctx = DOCAContext::new(&dma, vec![device]).unwrap();
+
         let workq = DOCAWorkQueue::new(1, &ctx).unwrap();
 
         assert_eq!(workq.depth(), 1);

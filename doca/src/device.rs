@@ -6,19 +6,19 @@
 //!
 //! Example usage of opening a device context with a given device name:
 //!
-//! '''ignore
-//! let device_ctx = open_device_with_pci("03:00.0")
-//!                             .expect("failed to open device")
-//!                             .open()
-//!                             .expect("Failed to create context upon a device");
-//! 
-//! '''
-//! 
-//! or 
-//! 
-//! '''ignore
+//! ```
+//! use doca::open_device_with_pci;
+//! let device_ctx = open_device_with_pci("03:00.0");
+//!
+//!
+//! ```
+//!
+//! or
+//!
+//! ```
+//! use doca::devices;
 //! let device_ctx = devices().unwrap().get(0).unwrap().open().unwrap();
-//! '''
+//! ```
 //!
 
 use ffi::doca_error;
@@ -33,6 +33,10 @@ unsafe impl Send for DeviceList {}
 impl Drop for DeviceList {
     fn drop(&mut self) {
         unsafe { ffi::doca_devinfo_list_destroy(self.0.as_mut_ptr()) };
+
+        // Show drop order only in `debug` mode
+        #[cfg(debug_assertions)]
+        println!("DeviceList is dropped!");
     }
 }
 
@@ -89,8 +93,8 @@ impl DeviceList {
 pub struct Device {
     inner: NonNull<ffi::doca_devinfo>,
 
-    // a device hold to ensure the device list is not freed 
-    // before the Device is freed 
+    // a device hold to ensure the device list is not freed
+    // before the Device is freed
     #[allow(dead_code)]
     parent_devlist: Arc<DeviceList>,
 }
@@ -145,12 +149,11 @@ impl Device {
         let ret = unsafe { ffi::doca_dma_get_max_buf_size(self.inner_ptr(), &mut num as *mut _) };
 
         if ret != doca_error::DOCA_SUCCESS {
-            return Err(ret)
+            return Err(ret);
         }
 
         Ok(num)
     }
-
 
     /// Return the device
     pub unsafe fn inner_ptr(&self) -> *mut ffi::doca_devinfo {
@@ -168,6 +171,10 @@ pub struct DevContext {
 impl Drop for DevContext {
     fn drop(&mut self) {
         unsafe { ffi::doca_dev_close(self.ctx.as_ptr()) };
+
+        // Show drop order only in `debug` mode
+        #[cfg(debug_assertions)]
+        println!("Device Context is dropped!");
     }
 }
 
@@ -197,8 +204,9 @@ impl DevContext {
 /// Open a DOCA Device with the given PCI address
 ///
 /// Examples
-/// ```ignore
-/// let device = open_device_with_pci("03:00.0").unwrap();
+/// ```
+/// use doca::open_device_with_pci;
+/// let device = open_device_with_pci("03:00.0");
 /// ```
 ///
 pub fn open_device_with_pci(pci: &str) -> Result<Arc<DevContext>, doca_error> {
@@ -244,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dev_max_buf() { 
+    fn test_dev_max_buf() {
         let device = crate::device::devices().unwrap().get(0).unwrap();
         let ret = device.get_max_buf_size();
         assert!(ret.is_ok());

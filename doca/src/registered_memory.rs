@@ -2,8 +2,8 @@ use crate::buffer::{BufferInventory, DOCABuffer};
 use crate::{DOCAMmap, RawPointer};
 
 use ffi::doca_error;
-use std::sync::Arc;
 use std::ptr::NonNull;
+use std::sync::Arc;
 
 /// A Simple struct to help manage the registered memory
 ///
@@ -18,10 +18,7 @@ pub struct DOCARegisteredMemory {
 
 impl DOCARegisteredMemory {
     /// Create a new DOCARegisteredMemory
-    pub fn new(
-        mmap: &Arc<DOCAMmap>,
-        register_memory: RawPointer,
-    ) -> Result<Self, doca_error> {
+    pub fn new(mmap: &Arc<DOCAMmap>, register_memory: RawPointer) -> Result<Self, doca_error> {
         let mmap = mmap.clone();
         mmap.populate(
             unsafe { register_memory.get_inner().as_ptr() },

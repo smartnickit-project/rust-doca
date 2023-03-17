@@ -1,7 +1,7 @@
 #![feature(get_mut_unchecked)]
 
 use clap::{arg, App, AppSettings};
-use doca::*;
+use doca::{*, dma::{DOCAContext}};
 
 use std::sync::Arc;
 
@@ -47,15 +47,19 @@ fn main() {
     // Create a DMA_ENGINE;
     let device = crate::open_device_with_pci(pci_addr).unwrap();
 
-    let ctx = DMAEngine::new()
-        .unwrap()
-        .create_context(vec![device.clone()])
+    let dma = DMAEngine::new()
         .unwrap();
+
+    let ctx = DOCAContext::new(&dma, vec![device.clone()]).unwrap();
 
     let mut workq = DOCAWorkQueue::new(1, &ctx).unwrap();
 
     let mut doca_mmap = Arc::new(DOCAMmap::new().unwrap());
-    unsafe { Arc::get_mut_unchecked(&mut doca_mmap).add_device(&device).unwrap() };
+    unsafe {
+        Arc::get_mut_unchecked(&mut doca_mmap)
+            .add_device(&device)
+            .unwrap()
+    };
 
     let inv = BufferInventory::new(1024).unwrap();
     let mut dma_src_buf =
@@ -98,5 +102,4 @@ fn main() {
         String::from_utf8(src_buffer.to_vec()).unwrap(),
         String::from_utf8(dst_buffer.to_vec()).unwrap()
     );
-
 }
