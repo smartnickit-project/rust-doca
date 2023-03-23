@@ -1,4 +1,7 @@
-//! Wrap DOCA Device into rust struct.
+//! Wrap DOCA Device into rust struct. 
+//! The DOCA device represents an available processing unit backed by 
+//! hardware or software implementation.
+//! 
 //! With the help of the wrapper, creating, managing and querying
 //! the device is extremely simple.
 //! Note that we also use `Arc` to automatically manage the lifecycle of the
@@ -24,6 +27,8 @@
 use ffi::doca_error;
 use std::{ptr::NonNull, sync::Arc};
 
+use crate::DOCAResult;
+
 /// DOCA Device list
 pub struct DeviceList(&'static mut [*mut ffi::doca_devinfo]);
 
@@ -48,7 +53,7 @@ impl Drop for DeviceList {
 ///  - `DOCA_ERROR_NO_MEMORY`: failed to allocate enough space.
 ///  - `DOCA_ERROR_NOT_FOUND`: failed to get RDMA devices list
 ///
-pub fn devices() -> Result<Arc<DeviceList>, doca_error> {
+pub fn devices() -> DOCAResult<Arc<DeviceList>> {
     let mut n = 0u32;
     let mut dev_list: *mut *mut ffi::doca_devinfo = std::ptr::null_mut();
     let ret = unsafe { ffi::doca_devinfo_list_create(&mut dev_list as *mut _, &mut n as *mut _) };
@@ -114,7 +119,7 @@ impl Device {
     ///
     ///  - `DOCA_ERROR_INVALID_VALUE`: received invalid input.
     ///
-    pub fn name(&self) -> Result<String, doca_error> {
+    pub fn name(&self) -> DOCAResult<String> {
         let mut pci_bdf: ffi::doca_pci_bdf = Default::default();
         let ret =
             unsafe { ffi::doca_devinfo_get_pci_addr(self.inner_ptr(), &mut pci_bdf as *mut _) };
@@ -139,12 +144,12 @@ impl Device {
     }
 
     /// Open a DOCA device and store it as a context for further use.
-    pub fn open(self: &Arc<Self>) -> Result<Arc<DevContext>, doca_error> {
+    pub fn open(self: &Arc<Self>) -> DOCAResult<Arc<DevContext>> {
         DevContext::with_device(self.clone())
     }
 
     /// Get the maximum supported buffer size for DMA job.
-    pub fn get_max_buf_size(&self) -> Result<u64, doca_error> {
+    pub fn get_max_buf_size(&self) -> DOCAResult<u64> {
         let mut num: u64 = 0;
         let ret = unsafe { ffi::doca_dma_get_max_buf_size(self.inner_ptr(), &mut num as *mut _) };
 
@@ -180,7 +185,7 @@ impl Drop for DevContext {
 
 impl DevContext {
     /// Opens a context for the given device, so we can use it later.
-    pub fn with_device(dev: Arc<Device>) -> Result<Arc<DevContext>, doca_error> {
+    pub fn with_device(dev: Arc<Device>) -> DOCAResult<Arc<DevContext>> {
         let mut ctx: *mut ffi::doca_dev = std::ptr::null_mut();
         let ret = unsafe { ffi::doca_dev_open(dev.inner_ptr(), &mut ctx as *mut _) };
 
@@ -209,7 +214,7 @@ impl DevContext {
 /// let device = open_device_with_pci("03:00.0");
 /// ```
 ///
-pub fn open_device_with_pci(pci: &str) -> Result<Arc<DevContext>, doca_error> {
+pub fn open_device_with_pci(pci: &str) -> DOCAResult<Arc<DevContext>> {
     let dev_list = devices()?;
 
     for i in 0..dev_list.num_devices() {

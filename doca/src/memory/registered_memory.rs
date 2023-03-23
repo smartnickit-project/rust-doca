@@ -1,15 +1,21 @@
-use crate::buffer::{BufferInventory, DOCABuffer};
-use crate::{DOCAMmap, RawPointer};
+//! Abstract of the memory in DOCA MMAP.
+//!
+//! The module contains a struct called [`DOCARegisteredMemory`] to
+//! record these memory regions registered in the memory map object.
+//! It holds the memory region metadata(start address and length) and
+//! the memory map it belongs to.
+//!
+use crate::memory::buffer::{BufferInventory, DOCABuffer};
+use crate::memory::DOCAMmap;
+use crate::{DOCAResult, RawPointer};
 
 use ffi::doca_error;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
-/// A Simple struct to help manage the registered memory
-///
 /// Using DOCA memory is a two step process:
-/// 1. populate it with `DOCAMmap::populate`
-/// 2. allocate buffer with `DOCABufferInventory::alloc_buffer`.
+/// 1. populate it with `DOCAMmap::populate`(Note that the remote address in a remote mmap has already been exported)
+/// 2. allocate buffer with a `BufferInventory`.
 ///
 pub struct DOCARegisteredMemory {
     mmap: Arc<DOCAMmap>,
@@ -18,12 +24,9 @@ pub struct DOCARegisteredMemory {
 
 impl DOCARegisteredMemory {
     /// Create a new DOCARegisteredMemory
-    pub fn new(mmap: &Arc<DOCAMmap>, register_memory: RawPointer) -> Result<Self, doca_error> {
+    pub fn new(mmap: &Arc<DOCAMmap>, register_memory: RawPointer) -> DOCAResult<Self> {
         let mmap = mmap.clone();
-        mmap.populate(
-            unsafe { register_memory.get_inner().as_ptr() },
-            register_memory.get_payload(),
-        )?;
+        mmap.populate(register_memory)?;
 
         Ok(Self {
             mmap,
@@ -31,8 +34,16 @@ impl DOCARegisteredMemory {
         })
     }
 
+    /// Create a new DOCARegisteredMemory on the remote side
+    pub fn new_from_remote(mmap: &Arc<DOCAMmap>, register_memory: RawPointer) -> DOCAResult<Self> {
+        Ok(Self {
+            mmap: mmap.clone(),
+            register_memory: register_memory,
+        })
+    }
+
     /// Allocate a buffer from the registered memory
-    pub fn to_buffer(self, inv: &Arc<BufferInventory>) -> Result<DOCABuffer, doca_error> {
+    pub fn to_buffer(self, inv: &Arc<BufferInventory>) -> DOCAResult<DOCABuffer> {
         let mut buffer: *mut ffi::doca_buf = std::ptr::null_mut();
         let ret = unsafe {
             ffi::doca_buf_inventory_buf_by_args(
