@@ -1,12 +1,28 @@
+//! WorkQueue module.
+//!
+//! - [`DOCAWorkQueue`] enables submitting jobs to DOCA libraries and track job progress
+//! (supports both polling mode and event-driven mode). It introduces three main operations:
+//! 1. Submission of jobs.
+//! 2. Checking progress/status of submitted jobs.
+//! 3. Querying job completion status.
+//! 
+//! The trait [`ToBaseJob`] is designed to receive requests from all data-path 
+//! libraries since each one has its own work request.
+//! 
+//! - [`DOCAEvent`] is an activity completion event. It is used to keep track of which 
+//! the submitted job has finished. 
+
 use std::{ptr::NonNull, sync::Arc};
 
 use ffi::{doca_event, doca_job};
 
-use crate::DOCAError;
+use crate::{DOCAError, DOCAResult};
 
-use super::context::{DOCAContext, EngineToContext};
+use super::{DOCAContext, EngineToContext};
 
+/// The trait makes WorkQueue capable for various DOCA requests
 pub trait ToBaseJob {
+    /// Get the base `doca_job` from a specific job
     fn to_base(&self) -> &doca_job;
 }
 
@@ -68,7 +84,7 @@ impl<T: EngineToContext> Drop for DOCAWorkQueue<T> {
 
 impl<T: EngineToContext> DOCAWorkQueue<T> {
     /// Creates empty DOCA WorkQ object with default attributes.
-    pub fn new(depth: u32, ctx: &Arc<DOCAContext<T>>) -> Result<Self, DOCAError> {
+    pub fn new(depth: u32, ctx: &Arc<DOCAContext<T>>) -> DOCAResult<Self> {
         let mut workq: *mut ffi::doca_workq = std::ptr::null_mut();
         let ret = unsafe { ffi::doca_workq_create(depth, &mut workq as *mut _) };
 
@@ -93,7 +109,7 @@ impl<T: EngineToContext> DOCAWorkQueue<T> {
     }
 
     /// Add the job into the work queue
-    pub fn submit<Job: ToBaseJob>(&mut self, job: &Job) -> Result<(), DOCAError> {
+    pub fn submit<Job: ToBaseJob>(&mut self, job: &Job) -> DOCAResult<()> {
         let ret = unsafe { ffi::doca_workq_submit(self.inner_ptr(), job.to_base() as *const _) };
         if ret != DOCAError::DOCA_SUCCESS {
             return Err(ret);
@@ -104,7 +120,7 @@ impl<T: EngineToContext> DOCAWorkQueue<T> {
 
     /// Check whether there's a job finished in the work queue
     #[inline]
-    pub fn poll_completion(&mut self) -> Result<DOCAEvent, DOCAError> {
+    pub fn poll_completion(&mut self) -> DOCAResult<DOCAEvent> {
         let mut event = DOCAEvent::new();
         let ret = unsafe {
             ffi::doca_workq_progress_retrieve(
@@ -133,7 +149,7 @@ impl<T: EngineToContext> DOCAWorkQueue<T> {
 mod tests {
     #[test]
     fn test_worker_queue_create() {
-        use crate::context::context::DOCAContext;
+        use crate::context::DOCAContext;
         use crate::dma::DMAEngine;
         use crate::DOCAWorkQueue;
 

@@ -1,21 +1,56 @@
-//! Wrapper over `doca_buf` and its related structs
+//! Wrapper over `doca_buf` and its related structs.
 //!
-//! TBD Examples
+//! The module mainly contains two components of DOCA
+//! - [`DOCABuffer`]  is used for reference data.
+//! It holds the information on a memory region that belongs to a DOCA memory map,
+//! and its descriptor is allocated from DOCA Buffer Inventory.
 //!
-
+//! - [`BufferInventory`] manages a pool of doca_buf objects.
+//! Each buffer obtained from an inventory is a descriptor that
+//! points to a memory region from a doca_mmap memory range of the user's choice.
+//!
+//! The module also provides an abstraction of the data stored in a memory map [`RawPointer`].
+//!
+//! The usage of this module is to create a specific mmap buffer which points to a piece of
+//! memory in the memory map:
+//! ```
+//! use std::sync::Arc;
+//! use doca::memory::DOCAMmap;
+//! use doca::memory::buffer::BufferInventory;
+//! use doca::DOCARegisteredMemory;
+//! use doca::RawPointer;
+//!
+//! // The memory region we want to register into the memory map
+//! let mut mem_buffer = vec![0u8; 1024].into_boxed_slice();
+//! // Create the memory map object
+//! let mmap = Arc::new(DOCAMmap::new().unwrap());
+//! // Create the buffer inventory for buffer allocation
+//! let inv = BufferInventory::new(1024).unwrap();
+//!
+//! // Register the memory region into the memory map
+//! let mut dma_buffer = DOCARegisteredMemory::new(&mmap, unsafe { RawPointer::from_box(&mem_buffer) })
+//!     .unwrap()
+//!     // And get a buffer pointing to it
+//!     .to_buffer(&inv)
+//!     .unwrap();
+//!
+//! ```
 use core::ffi::c_void;
 use ffi::doca_error;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
-use crate::DOCAMmap;
+use crate::memory::DOCAMmap;
+use crate::DOCAResult;
 
 /// An abstraction of raw pointer pointing to a given buffer size:
 /// inner -> |   ....  payload .... |
 ///
 #[derive(Clone, Copy)]
 pub struct RawPointer {
+    /// The header of the data
     pub inner: NonNull<c_void>,
+    /// The data length
     pub payload: usize,
 }
 
@@ -36,6 +71,15 @@ impl RawPointer {
         Self {
             inner: NonNull::new_unchecked(boxed.as_ptr() as _),
             payload: boxed.len(),
+        }
+    }
+
+    /// get the raw pointer from a pointer
+    /// Usually, it's used to present a remote memory region
+    pub unsafe fn from_raw_ptr(ptr: *mut u8, len: usize) -> Self {
+        Self {
+            inner: NonNull::new_unchecked(ptr as _),
+            payload: len,
         }
     }
 }
@@ -73,7 +117,7 @@ impl DOCABuffer {
     /// Get the buffer's data.
     /// It is unsafe because we don't track the lifetime of the returned pointer.
     ///
-    pub unsafe fn get_data(&self) -> Result<*mut c_void, doca_error> {
+    pub unsafe fn get_data(&self) -> DOCAResult<*mut c_void> {
         let mut data: *mut c_void = std::ptr::null_mut();
 
         let ret = unsafe { ffi::doca_buf_get_data(self.inner_ptr(), &mut data as *mut _) };
@@ -88,7 +132,7 @@ impl DOCABuffer {
     /// Set data pointer and data length
     /// The data pointer and length should fix in the head region.
     /// Therefore, we adopt usize (in offset), instead of passing the raw pointers
-    pub unsafe fn set_data(&mut self, off: usize, sz: usize) -> Result<(), doca_error> {
+    pub unsafe fn set_data(&mut self, off: usize, sz: usize) -> DOCAResult<()> {
         let ret = unsafe {
             ffi::doca_buf_set_data(
                 self.inner_ptr(),
@@ -134,7 +178,7 @@ impl BufferInventory {
     ///
     /// FIXME: currently we omit setting other attributes of the inventory.
     ///
-    pub fn new(num: usize) -> Result<Arc<Self>, doca_error> {
+    pub fn new(num: usize) -> DOCAResult<Arc<Self>> {
         // currently we don't use `user_data` field
         let mut buf_inv: *mut ffi::doca_buf_inventory = std::ptr::null_mut();
         // DOCA_BUF_EXTENSION_NONE = 0;
@@ -160,7 +204,7 @@ impl BufferInventory {
     }
 
     /// Start element retrieval from inventory.
-    fn start(&mut self) -> Result<(), doca_error> {
+    fn start(&mut self) -> DOCAResult<()> {
         let ret = unsafe { ffi::doca_buf_inventory_start(self.inner_ptr()) };
 
         if ret != doca_error::DOCA_SUCCESS {
@@ -173,12 +217,12 @@ impl BufferInventory {
 
 mod tests {
     #[allow(unused_imports)]
-    use crate::{registered_memory, DOCARegisteredMemory};
+    use crate::{memory::registered_memory, DOCARegisteredMemory};
 
     #[test]
     fn test_basic_buffer_inv() {
         use super::*;
-        use crate::DOCAMmap;
+        use crate::memory::DOCAMmap;
 
         let doca_mmap = Arc::new(DOCAMmap::new().unwrap());
         let inv = BufferInventory::new(1024).unwrap();

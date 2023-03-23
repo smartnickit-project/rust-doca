@@ -6,41 +6,35 @@ use doca::{dma::DOCAContext, *};
 use std::sync::Arc;
 
 fn main() {
-    let matches = App::new("doca dma local copy")
+    let matches = App::new("doca remote copy")
         .version("0.1")
         .author("Yuhan Yang")
-        .about("The doca dma local copy samples on DPU")
+        .about("The doca dma remote copy samples on DPU Side")
         .setting(AppSettings::AllArgsOverrideSelf)
         .args(&[
             arg!(--pci <DEV_PCI> "DOCA DMA Device PCI address"),
-            arg!(--txt [COPY_TEXT] "The text to be delivered"),
+            arg!(--export [FILE_PATH] "export descriptor file path"),
+            arg!(--buffer [FILE_PATH] "buffer info file path"),
         ])
         .get_matches();
 
     let pci_addr = matches.value_of("pci").unwrap_or("03:00.0");
-    let cpy_txt = matches
-        .value_of("txt")
-        .unwrap_or("This is a sample copy text");
+    let export_file = matches.value_of("export").unwrap_or("/tmp/export.txt");
+    let buffer_file = matches.value_of("buffer").unwrap_or("/tmp/buffer.txt");
 
-    let length = cpy_txt.as_bytes().len();
+    // Get information to construct the remote Memory Pool
+    let remote_configs = doca::load_config(export_file, buffer_file);
 
     println!(
-        "[Init] params check, pci: {}, cpy_txt {}, length {}",
-        pci_addr, cpy_txt, length
+        "Check export len {}, remote len {}, remote addr {:?}",
+        remote_configs.export_desc.payload,
+        remote_configs.remote_addr.payload,
+        remote_configs.remote_addr.inner.as_ptr()
     );
 
-    // first malloc the destination buffer
+    // Allocate the local buffer to store the transferred data
     #[allow(unused_mut)]
-    let mut dst_buffer = vec![0u8; length].into_boxed_slice();
-    let mut src_buffer = vec![0u8; length].into_boxed_slice();
-
-    // copy the text into src_buffer
-    src_buffer.copy_from_slice(cpy_txt.as_bytes());
-    println!(
-        "[Before] src_buffer and dst_buffer check: {} || {}",
-        String::from_utf8(src_buffer.to_vec()).unwrap(),
-        String::from_utf8(dst_buffer.to_vec()).unwrap()
-    );
+    let mut dpu_buffer = vec![0u8; remote_configs.remote_addr.payload].into_boxed_slice();
 
     /* ********** The main test body ********** */
 
@@ -60,16 +54,25 @@ fn main() {
             .unwrap()
     };
 
+    // Create the remote mmap
+    #[allow(unused_mut)]
+    let mut remote_mmap =
+        Arc::new(DOCAMmap::new_from_export(remote_configs.export_desc, &device).unwrap());
+
     let inv = BufferInventory::new(1024).unwrap();
     let mut dma_src_buf =
-        DOCARegisteredMemory::new(&doca_mmap, unsafe { RawPointer::from_box(&src_buffer) })
+        DOCARegisteredMemory::new_from_remote(&remote_mmap, remote_configs.remote_addr)
             .unwrap()
             .to_buffer(&inv)
             .unwrap();
-    unsafe { dma_src_buf.set_data(0, length).unwrap() };
+    unsafe {
+        dma_src_buf
+            .set_data(0, remote_configs.remote_addr.payload)
+            .unwrap()
+    };
 
     let dma_dst_buf =
-        DOCARegisteredMemory::new(&doca_mmap, unsafe { RawPointer::from_box(&dst_buffer) })
+        DOCARegisteredMemory::new(&doca_mmap, unsafe { RawPointer::from_box(&dpu_buffer) })
             .unwrap()
             .to_buffer(&inv)
             .unwrap();
@@ -97,8 +100,7 @@ fn main() {
 
     /* ------- Finalize check ---------- */
     println!(
-        "[After] src_buffer and dst_buffer check: {} || {}",
-        String::from_utf8(src_buffer.to_vec()).unwrap(),
-        String::from_utf8(dst_buffer.to_vec()).unwrap()
+        "[After] dst_buffer check: {}",
+        String::from_utf8(dpu_buffer.to_vec()).unwrap()
     );
 }

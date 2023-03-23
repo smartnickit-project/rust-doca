@@ -1,12 +1,12 @@
 # Deploy `rust-doca` with Docker
 
-If you encounter difficulties installing DOCA on your machine or would like to save time and effort, deploying rust-doca with Docker is a good option. [Docker](https://docs.docker.com/engine/install/) should be installed on the machine before following the instructions below.
+If the user encounter difficulties installing DOCA on the machine or would like to save time and effort, deploying rust-doca with Docker is a good option. [Docker](https://docs.docker.com/engine/install/) should be installed on the machine before following the instructions below.
 
 `rust-doca` offers two methods for deploying with Docker.
 
 ## Build a Docker image with Rust installed inside
 
-This method involves building a Docker image based on the native DOCA container image provided by Nvidia. `rust-doca` adds the Rust installation part so you can start the container, compile, and run the entire project directly. One disadvantage of this method is that once you delete the container, the newly started container needs to re-download all the crates. Therefore, it is important to use the same container and avoid deleting it.
+This method involves building a Docker image based on the native DOCA container image provided by Nvidia. `rust-doca` adds the Rust installation part so the user can start the container, compile, and run the entire project directly. One disadvantage of this method is that once the user delete the container, the newly started container needs to re-download all the crates. Therefore, it is important to use the same container and avoid deleting it.
 
 `rust-doca` provides the [Dockerfile](../Dockerfile) and [Makefile](../Makefile), making it easy to launch the container.
 
@@ -25,6 +25,8 @@ $ make open
 $ make clean
 ```
 
+If opening a terminal every time is inconvenient for the user, there is an alternative method provided by `rust-doca`. The script `run_container.sh` located in the root directory launches a container and executes the command given by the user. Once the command completes, the container is automatically deleted. However, one downside of this approach is that the user may experience some delay as `cargo` updates the index.
+
 ## Run the Nvidia DOCA container with the Rust installed on the machine
 
-This method does not require the use of the same container. The container will use the Rust installation on your machine instead of installing a new one inside the container. Simply run the command `make run_local`, and a terminal will open inside the container for you to compile the project.
+This method does not require the use of the same container. The container will use the Rust installation on your machine instead of installing a new one inside the container. Simply run the command `make run_local`, and a terminal will open inside the container for the user to compile the project.
