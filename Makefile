@@ -1,6 +1,6 @@
 
 build:
-	docker build -t rust-doca .
+	docker build -t rust-doca tools/.
 
 run:
 	docker run -v $(PWD):/rust-doca --privileged --name doca-builder --workdir=/rust-doca -itd -e container=docker rust-doca
