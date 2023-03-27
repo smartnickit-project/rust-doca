@@ -1,29 +1,29 @@
-//! Wrapper for DOCA DMA related. It provides 
+//! Wrapper for DOCA DMA related. It provides
 //! the ability of copying memory using direct memory access (DMA).
-//! 
+//!
 //! The core structs include [`DOCADMAJob`], [`DMAEngine`].
 //!
 //! It basically contains two core structs:
 //! - [`DOCADMAJob`]: The DMA request of DOCA. It implements the trait [`ToBaseJob`],
 //! which makes it capable for being submitted to the work queue.
-//! 
+//!
 //! - [`DMAEngine`]: The DMA Engine of DOCA. Users should create an instance of the engine and
 //! execute DMA requests based on the engine.
 //!
 //! # Examples
-//! 
+//!
 //! Create a DMAEngine and get the Context of the engine.
-//! 
+//!
 //! ``` rust, no_run
 //! use doca::DMAEngine;
 //! use doca::context::DOCAContext;
-//! 
+//!
 //! let dma = DMAEngine::new().unwrap();
 //! let device = doca::device::open_device_with_pci("17:00.0").unwrap();
-//! 
+//!
 //! let ctx = DOCAContext::new(&dma, vec![device]).unwrap();
 //! ```
-//! 
+//!
 
 use std::ptr::NonNull;
 use std::sync::Arc;

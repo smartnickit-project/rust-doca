@@ -1,7 +1,7 @@
-//! Wrap DOCA Device into rust struct. 
-//! The DOCA device represents an available processing unit backed by 
+//! Wrap DOCA Device into rust struct.
+//! The DOCA device represents an available processing unit backed by
 //! hardware or software implementation.
-//! 
+//!
 //! With the help of the wrapper, creating, managing and querying
 //! the device is extremely simple.
 //! Note that we also use `Arc` to automatically manage the lifecycle of the
@@ -85,12 +85,22 @@ impl DeviceList {
 
     /// Returns the device at the given `index`, or `None` if out of bounds.
     pub fn get(self: &Arc<Self>, index: usize) -> Option<Arc<Device>> {
-        self.0.get(index).map(|d| {
-            Arc::new(Device {
-                inner: NonNull::new(*d).unwrap(),
-                parent_devlist: self.clone(),
+        self.0
+            .get(index)
+            .map(|d| {
+                let inner_ptr = NonNull::new(*d);
+
+                let inner = match inner_ptr {
+                    Some(inner) => inner,
+                    None => return None,
+                };
+
+                Some(Arc::new(Device {
+                    inner: inner,
+                    parent_devlist: self.clone(),
+                }))
             })
-        })
+            .flatten()
     }
 }
 

@@ -3,8 +3,8 @@
 //! The DOCA Execution models mainly contains two components.
 //! - [`DOCAContext`] is the base class of every data-path library in DOCA.
 //! It is a specific library/SDK instance object providing abstract data processing functionality.
-//! The library exposes events and/or jobs that manipulate data. 
-//! 
+//! The library exposes events and/or jobs that manipulate data.
+//!
 //! Since each data-path library has its
 //! own context, the trait [`EngineToContext`] is designed for these libraries to implement their
 //! own function to transfer an data-path engine into a Context instance.  For example, to submit DMA jobs,
@@ -64,7 +64,9 @@ impl<T: EngineToContext> DOCAContext<T> {
 
 impl<T: EngineToContext> Drop for DOCAContext<T> {
     fn drop(&mut self) {
-        self.stop().unwrap();
+        let _ = self.stop().map_err(|e| {
+            panic!("Failed to stop the Context: {:?}", e);
+        });
 
         for dev in &self.added_devs {
             let ret = unsafe { ffi::doca_ctx_dev_rm(self.inner_ptr(), dev.inner_ptr()) };

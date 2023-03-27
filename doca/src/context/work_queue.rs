@@ -5,12 +5,12 @@
 //! 1. Submission of jobs.
 //! 2. Checking progress/status of submitted jobs.
 //! 3. Querying job completion status.
-//! 
-//! The trait [`ToBaseJob`] is designed to receive requests from all data-path 
+//!
+//! The trait [`ToBaseJob`] is designed to receive requests from all data-path
 //! libraries since each one has its own work request.
-//! 
-//! - [`DOCAEvent`] is an activity completion event. It is used to keep track of which 
-//! the submitted job has finished. 
+//!
+//! - [`DOCAEvent`] is an activity completion event. It is used to keep track of which
+//! the submitted job has finished.
 
 use std::{ptr::NonNull, sync::Arc};
 
