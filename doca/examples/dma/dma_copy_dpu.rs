@@ -23,7 +23,7 @@ fn main() {
     let buffer_file = matches.value_of("buffer").unwrap_or("/tmp/buffer.txt");
 
     // Get information to construct the remote Memory Pool
-    let remote_configs = doca::load_config(export_file, buffer_file);
+    let remote_configs = doca::load_config(export_file, buffer_file).unwrap();
 
     println!(
         "Check export len {}, remote len {}, remote addr {:?}",

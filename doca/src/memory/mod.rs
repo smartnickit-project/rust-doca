@@ -41,7 +41,7 @@ use std::ptr::NonNull;
 use std::sync::Arc;
 
 use crate::device::DevContext;
-use crate::{DOCAResult, RawPointer};
+use crate::{DOCAError, DOCAResult, RawPointer};
 
 const DOCA_MMAP_CHUNK_SIZE: u32 = 64; // 64 registered memory regions per mmap
 /// A wrapper for `doca_mmap` struct
@@ -212,7 +212,7 @@ impl DOCAMmap {
         self.ok = false;
 
         Ok(RawPointer {
-            inner: NonNull::new(export_desc).unwrap(),
+            inner: NonNull::new(export_desc).ok_or(DOCAError::DOCA_ERROR_INVALID_VALUE)?,
             payload: len,
         })
     }
