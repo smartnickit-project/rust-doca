@@ -39,9 +39,12 @@ use core::ffi::c_void;
 use ffi::doca_error;
 use std::ptr::NonNull;
 use std::sync::Arc;
+use std::convert::From;
 
 use crate::memory::DOCAMmap;
 use crate::DOCAResult;
+
+use serde_derive::{Deserialize, Serialize};
 
 /// An abstraction of raw pointer pointing to a given buffer size:
 /// inner -> |   ....  payload .... |
@@ -52,6 +55,13 @@ pub struct RawPointer {
     pub inner: NonNull<c_void>,
     /// The data length
     pub payload: usize,
+}
+
+/// a (de)serializable struct for passing RawPointer between nodes
+#[derive(Serialize, Deserialize)]
+pub struct RawPointerMsg {
+    inner: u64,
+    payload: usize,
 }
 
 impl RawPointer {
@@ -80,6 +90,39 @@ impl RawPointer {
         Self {
             inner: NonNull::new_unchecked(ptr as _),
             payload: len,
+        }
+    }
+}
+
+impl From<RawPointerMsg> for RawPointer {
+    fn from(msg: RawPointerMsg) -> Self {
+        Self {
+            inner: NonNull::new(msg.inner as *mut c_void).unwrap(),
+            payload: msg.payload,
+        }
+    }
+}
+
+impl RawPointerMsg {
+    /// convert a RawPointerMsg to Vec<u8> for socket sending
+    #[inline]
+    pub fn serialize(src: RawPointerMsg) -> Vec<u8> {
+        serde_json::to_vec(&src).unwrap()
+    }
+
+    /// convert a u8 slice recved to RawPointerMsg
+    #[inline]
+    pub fn deserialize(src: &[u8]) -> RawPointerMsg {
+        serde_json::from_slice(src).unwrap()
+    }
+}
+
+impl From<RawPointer> for RawPointerMsg {
+    fn from(ptr: RawPointer) -> Self {
+        let inner_ptr = ptr.inner.as_ptr();
+        Self {
+            inner: inner_ptr as u64,
+            payload: ptr.payload,
         }
     }
 }

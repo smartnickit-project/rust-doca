@@ -40,7 +40,7 @@ use std::slice;
 
 pub use device::{devices, open_device_with_pci, DevContext, Device, DeviceList};
 pub use dma::{DMAEngine, DOCAEvent, DOCAWorkQueue};
-pub use memory::buffer::{BufferInventory, DOCABuffer, RawPointer};
+pub use memory::buffer::{BufferInventory, DOCABuffer, RawPointer, RawPointerMsg};
 pub use memory::registered_memory::DOCARegisteredMemory;
 pub use memory::DOCAMmap;
 
