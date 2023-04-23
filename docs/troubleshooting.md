@@ -34,3 +34,24 @@ Why this error happen remains unknown. It might due to the wrong setup for sourc
 There is no universal solution to this problem.
 
 If you encounter any issues that are not covered in this guide, please don't hesitate to reach out to us at [yangfisher01@gmail.com](yangfisher01@gmail.com). We are always happy to help.
+
+
+### Large region not permitted
+
+In DOCA DMA bench, if you register a too large buffer to DOCA, you might end up with get an error code of `DOCA_ERROR_NOT_PERMITTED`. The reason is similar to `ibv_reg_mr` in RDMA, in that DOCA needs to lock the region you want to register, and the size of region you can lock is limited. 
+
+You can set the limitation to unlimited by do the following, first update `limits.conf`:
+
+```bash
+vim /etc/security/limits.conf
+
+# add 2 rows to the file
+* soft memlock unlimited
+* hard memlock unlimited
+```
+
+Then, set the limitation to unlimited:
+
+```bash
+ulimit -l unlimited
+```
