@@ -117,10 +117,18 @@ impl DOCADMAJob {
 
     /// Set the data pointer of the src buffer
     #[inline]
-    pub fn set_data(&mut self, offset: usize, payload: usize) {
+    pub fn set_src_data(&mut self, offset: usize, payload: usize) {
         if let Some(f) = self.src_buff.as_mut() {
              unsafe { f.set_data(offset, payload).expect("doca fail to set src data!") };
         }
+    }
+
+    /// Set the data pointer of the dst buffer
+    #[inline]
+    pub fn set_dst_data(&mut self, offset: usize, payload: usize) {
+        if let Some(f) = self.dst_buff.as_mut() {
+            unsafe { f.set_data(offset, payload).expect("doca fail to set dst data!") };
+       }
     }
 
     /// Set request's based context
